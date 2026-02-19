@@ -100,4 +100,5 @@ public class HangfireAuthFilter : IDashboardAuthorizationFilter
     public bool Authorize(DashboardContext context) => true;
 }
 
+
 public partial class Program { }

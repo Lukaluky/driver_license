@@ -1,0 +1,50 @@
+## --- [ ОСНОВНОЕ ДЛЯ .NET ] ---
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+*.swp
+*.*~
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## --- [ IDE: RIDER & VS ] ---
+.idea/
+.vs/
+*.user
+*.userosscache
+*.sln.docstates
+*.suo
+*.sln.iml
+
+## --- [ ИСКЛЮЧЕНИЯ ДЛЯ DOCKER ] ---
+# .dockerignore ДОЛЖЕН быть в репозитории
+# Поэтому убираем его из игнора, если он там был
+!.dockerignore
+
+## --- [ СЕКРЕТЫ И НАСТРОЙКИ ] ---
+# Игнорируем файлы разработки, где могут быть пароли к БД или API-ключи
+appsettings.Development.json
+# Если используешь User Secrets (рекомендуется)
+secrets.json
+
+## --- [ ПАКЕТЫ ] ---
+*.nupkg
+**/packages/*
+!**/packages/build/
+.nuget/
+
+## --- [ ТЕСТЫ И СИСТЕМА ] ---
+TestResults/
+*.trx
+*.coverage
+.DS_Store
+Thumbs.db
+
+## --- [ БАЗЫ ДАННЫХ ] ---
+*.db
+*.db-shm
+*.db-wal
+# Если используешь локальный Postgres в папке проекта (не рекомендуется)
+pgdata/

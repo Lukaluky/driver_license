@@ -1,0 +1,96 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: dls-postgres
+    environment:
+      POSTGRES_USER: os_master_admin
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: os_production_db
+    ports:
+      - "8432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U os_master_admin -d os_production_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: dls-redis
+    ports:
+      - "6399:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: dls-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  wiremock:
+    image: wiremock/wiremock:latest
+    container_name: dls-wiremock
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./wiremock/mappings:/home/wiremock/mappings
+      - ./wiremock/__files:/home/wiremock/__files
+
+  orderservice-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    container_name: dls-orderservice-api
+    ports:
+      - "5050:5050"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=os_production_db;Username=os_master_admin;Password=postgres"
+      ConnectionStrings__Redis: "redis:6379"
+      RabbitMQ__Host: rabbitmq
+      RabbitMQ__Port: "5672"
+      ExternalApi__WiremockUrl: "http://wiremock:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      wiremock:
+        condition: service_started
+    restart: on-failure
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: gateway
+    container_name: dls-gateway
+    ports:
+      - "5000:5000"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ReverseProxy__Clusters__orderservice-cluster__Destinations__destination1__Address: "http://orderservice-api:5050"
+    depends_on:
+      - orderservice-api
+    restart: on-failure
+
+volumes:
+  pgdata:

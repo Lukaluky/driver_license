@@ -38,6 +38,22 @@ public class ApplicationRepository : IApplicationRepository
         return (items, totalCount);
     }
 
+    public async Task<(List<DriverApplication> Items, int TotalCount)> GetAssignedToInspectorAsync(
+        Guid inspectorId, int page, int pageSize)
+    {
+        var query = _context.Applications
+            .Where(a => a.InspectorId == inspectorId)
+            .OrderByDescending(a => a.UpdatedAt ?? a.CreatedAt);
+
+        var totalCount = await query.CountAsync();
+        var items = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return (items, totalCount);
+    }
+
     public async Task<(List<DriverApplication> Items, int TotalCount)> GetPendingForReviewAsync(
         int page, int pageSize)
     {
@@ -69,6 +85,30 @@ public class ApplicationRepository : IApplicationRepository
             a.ApplicantId == applicantId &&
             a.Category == category &&
             activeStatuses.Contains(a.Status));
+    }
+
+    public async Task<List<ApplicationSummaryView>> GetSummaryAsync()
+    {
+        return await _context.ApplicationSummaries
+            .AsNoTracking()
+            .OrderBy(x => x.Category)
+            .ToListAsync();
+    }
+
+    public async Task<string?> GetApplicantIinAsync(Guid applicantId)
+    {
+        return await _context.Users
+            .Where(u => u.Id == applicantId)
+            .Select(u => u.Iin)
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task<bool> HasIssuedCategoryAsync(Guid applicantId, LicenceCategory category)
+    {
+        return await _context.Applications.AnyAsync(a =>
+            a.ApplicantId == applicantId &&
+            a.Status == ApplicationStatus.Printed &&
+            a.Category == category);
     }
 
     public async Task AddAsync(DriverApplication application)

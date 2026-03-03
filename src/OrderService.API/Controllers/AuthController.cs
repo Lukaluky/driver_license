@@ -70,4 +70,22 @@ public class AuthController : ControllerBase
             return BadRequest(new { Error = ex.Message });
         }
     }
+
+    [HttpPost("resend-confirmation")]
+    public async Task<IActionResult> ResendConfirmation([FromBody] ResendConfirmationRequest request)
+    {
+        try
+        {
+            await _authService.ResendConfirmationCodeAsync(request);
+            return Ok(new { Message = "Код подтверждения отправлен повторно" });
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { Error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { Error = ex.Message });
+        }
+    }
 }

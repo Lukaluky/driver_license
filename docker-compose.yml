@@ -51,6 +51,20 @@ services:
       - ./wiremock/mappings:/home/wiremock/mappings
       - ./wiremock/__files:/home/wiremock/__files
 
+  future-checks-api:
+    image: nginxdemos/hello:latest
+    container_name: dls-future-checks-api
+    ports:
+      - "5060:80"
+    profiles: ["future"]
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: dls-mailpit
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
   orderservice-api:
     build:
       context: .
@@ -66,6 +80,10 @@ services:
       RabbitMQ__Host: rabbitmq
       RabbitMQ__Port: "5672"
       ExternalApi__WiremockUrl: "http://wiremock:8080"
+      Smtp__Host: "mailpit"
+      Smtp__Port: "1025"
+      Smtp__EnableSsl: "false"
+      Smtp__From: "noreply@driver-licence.local"
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,6 +92,8 @@ services:
       rabbitmq:
         condition: service_healthy
       wiremock:
+        condition: service_started
+      mailpit:
         condition: service_started
     restart: on-failure
 
@@ -88,6 +108,8 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ReverseProxy__Clusters__orderservice-cluster__Destinations__destination1__Address: "http://orderservice-api:5050"
+      ReverseProxy__Clusters__orderservice-cluster__Destinations__destination2__Address: "http://orderservice-api:5050"
+      ReverseProxy__Clusters__checks-cluster__Destinations__destination1__Address: "http://future-checks-api:5060"
     depends_on:
       - orderservice-api
     restart: on-failure

@@ -3,6 +3,7 @@ using Mapster;
 using OrderService.Application.DTOs.Applications;
 using OrderService.Application.DTOs.Common;
 using OrderService.Application.Interfaces;
+using OrderService.Application.Validation;
 using OrderService.Domain.Entities;
 using OrderService.Domain.Enums;
 using OrderService.Domain.Interfaces;
@@ -34,7 +35,14 @@ public class ApplicationService : IApplicationService
         if (!validation.IsValid)
             throw new ValidationException(validation.Errors);
 
+        var applicant = await _unitOfWork.Users.GetByIdAsync(applicantId)
+            ?? throw new KeyNotFoundException("Пользователь не найден");
+
+        var effectiveIin = ResolveEffectiveIin(applicant, request.Iin);
+        await EnsureApplicantHasSingleIinAsync(applicantId, effectiveIin);
+
         var category = Enum.Parse<LicenceCategory>(request.Category, true);
+        await ValidateCategoryRequirementsAsync(applicantId, category, effectiveIin);
 
         var lockKey = $"app-lock:{applicantId}:{category}";
         var acquired = await _cache.LockAsync(lockKey, TimeSpan.FromMinutes(5));
@@ -53,7 +61,7 @@ public class ApplicationService : IApplicationService
             {
                 Id = Guid.NewGuid(),
                 ApplicantId = applicantId,
-                Iin = request.Iin,
+                Iin = effectiveIin,
                 FullName = request.FullName,
                 Category = category,
                 Status = ApplicationStatus.Pending,
@@ -70,6 +78,55 @@ public class ApplicationService : IApplicationService
             await _cache.ReleaseLockAsync(lockKey);
             throw;
         }
+    }
+
+    public async Task<ApplicationResponse> CreateRenewalAsync(Guid applicantId, RenewExpiredLicenceRequest request)
+    {
+        if (request.ExpiredAt.Date > DateTime.UtcNow.Date)
+            throw new InvalidOperationException("Нельзя подать на перевыпуск: срок действия прав еще не истек");
+
+        var createRequest = new CreateApplicationRequest(request.Iin, request.FullName, request.Category);
+        return await CreateAsync(applicantId, createRequest);
+    }
+
+    public async Task<ApplicationResponse> CreateReissueAsync(Guid applicantId, CreateReissueApplicationRequest request)
+    {
+        var allowedReasons = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Expired",
+            "Lost",
+            "Damaged",
+            "DataChanged"
+        };
+
+        if (!allowedReasons.Contains(request.Reason))
+            throw new InvalidOperationException("Недопустимая причина перевыпуска");
+
+        if (request.Reason.Equals("Expired", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!request.PreviousLicenceExpiredAt.HasValue)
+                throw new InvalidOperationException("Для причины Expired нужно передать дату окончания предыдущих прав");
+
+            if (request.PreviousLicenceExpiredAt.Value.Date > DateTime.UtcNow.Date)
+                throw new InvalidOperationException("Срок предыдущих прав еще не истек");
+        }
+
+        var createRequest = new CreateApplicationRequest(request.Iin, request.FullName, request.Category);
+        return await CreateAsync(applicantId, createRequest);
+    }
+
+    public async Task<ApplicationResponse> GetByIdForUserAsync(Guid applicationId, Guid userId, string role)
+    {
+        var app = await _unitOfWork.Applications.GetByIdAsync(applicationId)
+            ?? throw new KeyNotFoundException("Заявка не найдена");
+
+        if (role.Equals("Applicant", StringComparison.OrdinalIgnoreCase) && app.ApplicantId != userId)
+            throw new InvalidOperationException("Нет доступа к этой заявке");
+
+        if (role.Equals("Inspector", StringComparison.OrdinalIgnoreCase) && app.InspectorId.HasValue && app.InspectorId != userId)
+            throw new InvalidOperationException("Заявка назначена другому инспектору");
+
+        return app.Adapt<ApplicationResponse>();
     }
 
     public async Task<PagedResult<ApplicationResponse>> GetMyApplicationsAsync(Guid applicantId, int page, int pageSize)
@@ -103,6 +160,56 @@ public class ApplicationService : IApplicationService
 
         await _cache.SetAsync(cacheKey, result, TimeSpan.FromSeconds(30));
         return result;
+    }
+
+    public async Task<PagedResult<ApplicationResponse>> GetAssignedToInspectorAsync(Guid inspectorId, int page, int pageSize)
+    {
+        var (items, totalCount) = await _unitOfWork.Applications.GetAssignedToInspectorAsync(inspectorId, page, pageSize);
+        return new PagedResult<ApplicationResponse>
+        {
+            Items = items.Adapt<List<ApplicationResponse>>(),
+            TotalCount = totalCount,
+            Page = page,
+            PageSize = pageSize
+        };
+    }
+
+    public async Task<List<ApplicationStatsResponse>> GetStatsAsync()
+    {
+        var summary = await _unitOfWork.Applications.GetSummaryAsync();
+        return summary.Select(x =>
+            new ApplicationStatsResponse(
+                x.Category,
+                x.TotalCount,
+                x.PendingCount,
+                x.InProgressCount,
+                x.ApprovedCount,
+                x.RejectedCount,
+                x.PrintedCount,
+                x.OldestPendingCreatedAt,
+                x.LatestApplication)).ToList();
+    }
+
+    public async Task<ApplicationResponse> CancelAsync(Guid applicationId, Guid applicantId)
+    {
+        var app = await _unitOfWork.Applications.GetByIdAsync(applicationId)
+            ?? throw new KeyNotFoundException("Заявка не найдена");
+
+        if (app.ApplicantId != applicantId)
+            throw new InvalidOperationException("Можно отменять только свои заявки");
+
+        if (app.Status is ApplicationStatus.Rejected or ApplicationStatus.Printed)
+            throw new InvalidOperationException($"Заявку нельзя отменить. Текущий статус: {app.Status}");
+
+        app.Status = ApplicationStatus.Rejected;
+        app.RejectionReason = "Отменено пользователем";
+        app.UpdatedAt = DateTime.UtcNow;
+        await _unitOfWork.SaveChangesAsync();
+
+        var lockKey = $"app-lock:{app.ApplicantId}:{app.Category}";
+        await _cache.ReleaseLockAsync(lockKey);
+
+        return app.Adapt<ApplicationResponse>();
     }
 
     public async Task<ApplicationResponse> AssignToInspectorAsync(Guid applicationId, Guid inspectorId)
@@ -193,5 +300,45 @@ public class ApplicationService : IApplicationService
             await _cache.RemoveAsync($"pending-apps:{i}:10");
             await _cache.RemoveAsync($"pending-apps:{i}:20");
         }
+    }
+
+    private async Task EnsureApplicantHasSingleIinAsync(Guid applicantId, string iin)
+    {
+        var knownIin = await _unitOfWork.Applications.GetApplicantIinAsync(applicantId);
+        if (!string.IsNullOrWhiteSpace(knownIin) && !knownIin.Equals(iin, StringComparison.Ordinal))
+            throw new InvalidOperationException("Один пользователь может использовать только один ИИН");
+    }
+
+    private static string ResolveEffectiveIin(User applicant, string? requestIin)
+    {
+        if (string.IsNullOrWhiteSpace(requestIin))
+        {
+            if (string.IsNullOrWhiteSpace(applicant.Iin))
+                throw new InvalidOperationException("Для пользователя не найден ИИН");
+
+            return applicant.Iin;
+        }
+
+        if (!string.IsNullOrWhiteSpace(applicant.Iin) &&
+            !applicant.Iin.Equals(requestIin, StringComparison.Ordinal))
+            throw new InvalidOperationException("ИИН заявки не совпадает с ИИН пользователя");
+
+        return requestIin;
+    }
+
+    private async Task ValidateCategoryRequirementsAsync(Guid applicantId, LicenceCategory category, string iin)
+    {
+        if (!IinUtils.IsAtLeastAge(iin, 18))
+            throw new InvalidOperationException("Заявитель должен быть не младше 18 лет");
+
+        if (category is not (LicenceCategory.C or LicenceCategory.D))
+            return;
+
+        if (!IinUtils.IsAtLeastAge(iin, 21))
+            throw new InvalidOperationException("Для категорий C и D требуется возраст от 21 года");
+
+        var hasBaseB = await _unitOfWork.Applications.HasIssuedCategoryAsync(applicantId, LicenceCategory.B);
+        if (!hasBaseB)
+            throw new InvalidOperationException("Для подачи на категории C и D требуется действующая категория B");
     }
 }

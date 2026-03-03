@@ -48,15 +48,22 @@ public static class DataSeeder
 
     private static async Task SeedViewAsync(AppDbContext context)
     {
+        await context.Database.ExecuteSqlRawAsync("""DROP VIEW IF EXISTS "ApplicationSummaries";""");
+
         const string viewSql = """
             CREATE OR REPLACE VIEW "ApplicationSummaries" AS
             SELECT
                 "Category"::text AS "Category",
-                "Status"::text AS "Status",
-                COUNT(*)::int AS "Count",
+                COUNT(*)::int AS "TotalCount",
+                COUNT(*) FILTER (WHERE "Status" = 'Pending')::int AS "PendingCount",
+                COUNT(*) FILTER (WHERE "Status" IN ('ExternalChecksInProgress', 'ExternalChecksPassed', 'AssignedToInspector'))::int AS "InProgressCount",
+                COUNT(*) FILTER (WHERE "Status" = 'Approved')::int AS "ApprovedCount",
+                COUNT(*) FILTER (WHERE "Status" = 'Rejected')::int AS "RejectedCount",
+                COUNT(*) FILTER (WHERE "Status" = 'Printed')::int AS "PrintedCount",
+                MIN("CreatedAt") FILTER (WHERE "Status" = 'Pending') AS "OldestPendingCreatedAt",
                 MAX("CreatedAt") AS "LatestApplication"
             FROM "Applications"
-            GROUP BY "Category", "Status"
+            GROUP BY "Category"
             """;
 
         await context.Database.ExecuteSqlRawAsync(viewSql);

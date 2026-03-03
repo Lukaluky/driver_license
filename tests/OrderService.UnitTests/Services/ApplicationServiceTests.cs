@@ -27,6 +27,16 @@ public class ApplicationServiceTests
             _cache.Object,
             _createValidator.Object,
             _reviewValidator.Object);
+
+        _unitOfWork.Setup(u => u.Applications.GetApplicantIinAsync(It.IsAny<Guid>()))
+            .ReturnsAsync((string?)null);
+        _unitOfWork.Setup(u => u.Users.GetByIdAsync(It.IsAny<Guid>()))
+            .ReturnsAsync((Guid id) => new User
+            {
+                Id = id,
+                Email = "applicant@test.com",
+                Iin = "900515300123"
+            });
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using FluentValidation;
 using OrderService.Application.DTOs.Auth;
+using OrderService.Application.Validation;
 
 namespace OrderService.Application.Validators;
 
@@ -23,5 +24,12 @@ public class RegisterRequestValidator : AbstractValidator<RegisterRequest>
             .NotEmpty().WithMessage("Роль обязательна")
             .Must(r => r is "Applicant" or "Inspector")
             .WithMessage("Роль должна быть 'Applicant' или 'Inspector'");
+
+        RuleFor(x => x.Iin)
+            .NotEmpty().WithMessage("ИИН обязателен")
+            .Length(12).WithMessage("ИИН должен содержать 12 цифр")
+            .Matches(@"^\d{12}$").WithMessage("ИИН должен состоять только из цифр")
+            .Must(IinUtils.IsValidFormat).WithMessage("Некорректный формат ИИН")
+            .Must(iin => IinUtils.IsAtLeastAge(iin, 18)).WithMessage("Заявитель должен быть не младше 18 лет");
     }
 }

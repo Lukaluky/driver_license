@@ -24,7 +24,7 @@ public class ApplicationsApiTests : IClassFixture<WebApplicationFactory<Program>
     public async Task Register_Should_Return_Ok()
     {
         var request = new RegisterRequest(
-            $"test-{Guid.NewGuid():N}@test.com", "Password1!", "Applicant");
+            $"test-{Guid.NewGuid():N}@test.com", "Password1!", "Applicant", "900515300123");
 
         var response = await _client.PostAsJsonAsync("/api/auth/register", request);
 
@@ -36,7 +36,7 @@ public class ApplicationsApiTests : IClassFixture<WebApplicationFactory<Program>
     {
         var email = $"test-{Guid.NewGuid():N}@test.com";
         await _client.PostAsJsonAsync("/api/auth/register",
-            new RegisterRequest(email, "Password1!", "Applicant"));
+            new RegisterRequest(email, "Password1!", "Applicant", "900515300124"));
 
         var response = await _client.PostAsJsonAsync("/api/auth/login",
             new LoginRequest(email, "Password1!"));

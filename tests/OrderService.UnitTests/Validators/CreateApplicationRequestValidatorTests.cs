@@ -19,7 +19,6 @@ public class CreateApplicationRequestValidatorTests
     }
 
     [Theory]
-    [InlineData("", "ФИО", "B")]
     [InlineData("12345", "ФИО", "B")]
     [InlineData("abcdefghijkl", "ФИО", "B")]
     public void Should_Fail_For_Invalid_Iin(string iin, string name, string category)
@@ -30,14 +29,11 @@ public class CreateApplicationRequestValidatorTests
     }
 
     [Fact]
-    public void Should_Fail_When_Under_18()
+    public void Should_Pass_When_Iin_Not_Provided()
     {
-        var year = (DateTime.Today.Year - 10) % 100;
-        var iin = $"{year:D2}0101500000";
-        var request = new CreateApplicationRequest(iin.PadRight(12, '0'), "Тест Тестов", "B");
+        var request = new CreateApplicationRequest(null, "Тест Тестов", "B");
         var result = _validator.TestValidate(request);
-        result.ShouldHaveValidationErrorFor(x => x.Iin)
-            .WithErrorMessage("Заявитель должен быть не младше 18 лет");
+        result.ShouldNotHaveValidationErrorFor(x => x.Iin);
     }
 
     [Fact]

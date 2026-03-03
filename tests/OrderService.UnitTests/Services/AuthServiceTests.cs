@@ -34,7 +34,7 @@ public class AuthServiceTests
     [Fact]
     public async Task Register_Should_Create_User_And_Return_Token()
     {
-        var request = new RegisterRequest("test@test.com", "Password1!", "Applicant");
+        var request = new RegisterRequest("test@test.com", "Password1!", "Applicant", "900515300123");
         _registerValidator.Setup(v => v.ValidateAsync(request, default))
             .ReturnsAsync(new ValidationResult());
         _unitOfWork.Setup(u => u.Users.GetByEmailAsync(request.Email))
@@ -54,7 +54,7 @@ public class AuthServiceTests
     [Fact]
     public async Task Register_Should_Throw_When_Email_Exists()
     {
-        var request = new RegisterRequest("existing@test.com", "Password1!", "Applicant");
+        var request = new RegisterRequest("existing@test.com", "Password1!", "Applicant", "900515300124");
         _registerValidator.Setup(v => v.ValidateAsync(request, default))
             .ReturnsAsync(new ValidationResult());
         _unitOfWork.Setup(u => u.Users.GetByEmailAsync(request.Email))

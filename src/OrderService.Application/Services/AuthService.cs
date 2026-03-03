@@ -39,12 +39,17 @@ public class AuthService : IAuthService
         if (existingUser != null)
             throw new InvalidOperationException("Пользователь с таким email уже существует");
 
+        var existingIinUser = await _unitOfWork.Users.GetByIinAsync(request.Iin);
+        if (existingIinUser != null)
+            throw new InvalidOperationException("Пользователь с таким ИИН уже существует");
+
         var confirmationCode = Random.Shared.Next(100000, 999999).ToString();
 
         var user = new User
         {
             Id = Guid.NewGuid(),
             Email = request.Email,
+            Iin = request.Iin,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
             Role = Enum.Parse<UserRole>(request.Role),
             EmailConfirmed = false,
@@ -94,5 +99,22 @@ public class AuthService : IAuthService
         user.EmailConfirmationCode = null;
         _unitOfWork.Users.Update(user);
         await _unitOfWork.SaveChangesAsync();
+    }
+
+    public async Task ResendConfirmationCodeAsync(ResendConfirmationRequest request)
+    {
+        var user = await _unitOfWork.Users.GetByEmailAsync(request.Email);
+        if (user == null)
+            throw new KeyNotFoundException("Пользователь не найден");
+
+        if (user.EmailConfirmed)
+            throw new InvalidOperationException("Email уже подтвержден");
+
+        var confirmationCode = Random.Shared.Next(100000, 999999).ToString();
+        user.EmailConfirmationCode = confirmationCode;
+        _unitOfWork.Users.Update(user);
+        await _unitOfWork.SaveChangesAsync();
+
+        await _emailService.SendEmailConfirmationAsync(user.Email, confirmationCode);
     }
 }

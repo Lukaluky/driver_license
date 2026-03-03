@@ -22,6 +22,9 @@ public class ApplicationsController : ControllerBase
     private Guid GetUserId() =>
         Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
+    private string GetUserRole() =>
+        User.FindFirstValue(ClaimTypes.Role) ?? string.Empty;
+
     [HttpPost]
     [Authorize(Roles = "Applicant")]
     public async Task<IActionResult> Create([FromBody] CreateApplicationRequest request)
@@ -53,12 +56,86 @@ public class ApplicationsController : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("assigned/me")]
+    [Authorize(Roles = "Inspector")]
+    public async Task<IActionResult> GetAssignedToMe([FromQuery] int page = 1, [FromQuery] int pageSize = 10)
+    {
+        var result = await _applicationService.GetAssignedToInspectorAsync(GetUserId(), page, pageSize);
+        return Ok(result);
+    }
+
     [HttpGet("pending")]
     [Authorize(Roles = "Inspector")]
     public async Task<IActionResult> GetPending([FromQuery] int page = 1, [FromQuery] int pageSize = 10)
     {
         var result = await _applicationService.GetPendingApplicationsAsync(page, pageSize);
         return Ok(result);
+    }
+
+    [HttpGet("stats")]
+    [Authorize(Roles = "Inspector")]
+    public async Task<IActionResult> GetStats()
+    {
+        var result = await _applicationService.GetStatsAsync();
+        return Ok(result);
+    }
+
+    [HttpGet("{id:guid}")]
+    public async Task<IActionResult> GetById(Guid id)
+    {
+        try
+        {
+            var result = await _applicationService.GetByIdForUserAsync(id, GetUserId(), GetUserRole());
+            return Ok(result);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { Error = ex.Message });
+        }
+        catch (InvalidOperationException)
+        {
+            return Forbid();
+        }
+    }
+
+    [HttpPost("renewal-expired")]
+    [Authorize(Roles = "Applicant")]
+    public async Task<IActionResult> CreateRenewal([FromBody] RenewExpiredLicenceRequest request)
+    {
+        try
+        {
+            var response = await _applicationService.CreateRenewalAsync(GetUserId(), request);
+            BackgroundJob.Enqueue<ExternalCheckJob>(job => job.RunChecksAsync(response.Id));
+            return CreatedAtAction(nameof(GetById), new { id = response.Id }, response);
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { Errors = ex.Errors.Select(e => e.ErrorMessage) });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { Error = ex.Message });
+        }
+    }
+
+    [HttpPost("reissue")]
+    [Authorize(Roles = "Applicant")]
+    public async Task<IActionResult> CreateReissue([FromBody] CreateReissueApplicationRequest request)
+    {
+        try
+        {
+            var response = await _applicationService.CreateReissueAsync(GetUserId(), request);
+            BackgroundJob.Enqueue<ExternalCheckJob>(job => job.RunChecksAsync(response.Id));
+            return CreatedAtAction(nameof(GetById), new { id = response.Id }, response);
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { Errors = ex.Errors.Select(e => e.ErrorMessage) });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { Error = ex.Message });
+        }
     }
 
     [HttpPost("{id:guid}/assign")]
@@ -101,6 +178,33 @@ public class ApplicationsController : ControllerBase
         {
             return BadRequest(new { Error = ex.Message });
         }
+    }
+
+    [HttpPost("{id:guid}/cancel")]
+    [Authorize(Roles = "Applicant")]
+    public async Task<IActionResult> Cancel(Guid id)
+    {
+        try
+        {
+            var response = await _applicationService.CancelAsync(id, GetUserId());
+            return Ok(response);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { Error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { Error = ex.Message });
+        }
+    }
+
+    [HttpPost("{id:guid}/recheck")]
+    [Authorize(Roles = "Inspector")]
+    public IActionResult Recheck(Guid id)
+    {
+        BackgroundJob.Enqueue<ExternalCheckJob>(job => job.RunChecksAsync(id));
+        return Accepted(new { Message = "Повторная внешняя проверка поставлена в очередь", ApplicationId = id });
     }
 
     [HttpPost("{id:guid}/print")]

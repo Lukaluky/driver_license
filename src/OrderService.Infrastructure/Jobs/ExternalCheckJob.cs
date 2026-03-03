@@ -48,13 +48,14 @@ public class ExternalCheckJob
         app.UpdatedAt = DateTime.UtcNow;
         await _unitOfWork.SaveChangesAsync();
 
-        var mvdPassed = await _externalCheckService.CheckMvdAsync(app.Iin);
-        var medicalPassed = await _externalCheckService.CheckMedicalAsync(app.Iin);
+        var checksResult = await _externalCheckService.RunAllAsync(app.Iin);
+        var mvdPassed = checksResult.Items.FirstOrDefault(x => x.Name == "MVD")?.Passed ?? false;
+        var medicalPassed = checksResult.Items.FirstOrDefault(x => x.Name == "Medical")?.Passed ?? false;
 
         app.MvdCheckPassed = mvdPassed;
         app.MedicalCheckPassed = medicalPassed;
 
-        if (mvdPassed && medicalPassed)
+        if (checksResult.AllPassed)
         {
             app.Status = ApplicationStatus.ExternalChecksPassed;
             _logger.LogInformation("External checks PASSED for application {AppId}", applicationId);
@@ -62,7 +63,7 @@ public class ExternalCheckJob
         else
         {
             app.Status = ApplicationStatus.ExternalChecksFailed;
-            app.RejectionReason = BuildFailureReason(mvdPassed, medicalPassed);
+            app.RejectionReason = BuildFailureReason(checksResult.Items);
             _logger.LogInformation("External checks FAILED for application {AppId}: {Reason}",
                 applicationId, app.RejectionReason);
 
@@ -80,11 +81,13 @@ public class ExternalCheckJob
         }
     }
 
-    private static string BuildFailureReason(bool mvd, bool medical)
+    private static string BuildFailureReason(IEnumerable<ExternalCheckItemResult> items)
     {
-        var reasons = new List<string>();
-        if (!mvd) reasons.Add("Проверка МВД не пройдена");
-        if (!medical) reasons.Add("Медицинская проверка не пройдена");
-        return string.Join("; ", reasons);
+        var reasons = items
+            .Where(x => !x.Passed)
+            .Select(x => $"{x.Name}: {x.Message ?? "не пройдена"}")
+            .ToList();
+
+        return reasons.Count == 0 ? "Внешние проверки не пройдены" : string.Join("; ", reasons);
     }
 }

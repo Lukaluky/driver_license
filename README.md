@@ -14,6 +14,7 @@ API для приёма и обработки заявок на получени
 - FluentValidation, Mapster
 - WireMock (эмуляция внешних сервисов МВД и медкомиссии)
 - Swagger / OpenAPI
+- MailPit (локальный SMTP для просмотра отправленных писем)
 
 ## Архитектура
 
@@ -32,14 +33,37 @@ tests/
 └── OrderService.IntegrationTests — WebApplicationFactory
 ```
 
-**GateWay.API** проксирует все запросы к OrderService.API и ограничивает частоту обращений (100 запросов в минуту на IP).
+**GateWay.API** проксирует запросы к backend-сервисам, ограничивает частоту обращений (100 запросов в минуту на IP) и поддерживает расширяемую схему маршрутов.
+
+### Расширяемость Gateway
+
+Маршрутизация сделана через конфиг `src/GateWay.API/appsettings.json`:
+
+- `orders-api-v1-route` — ` /api/orders/{**catch-all}` (новый префикс для OrderService)
+- `orders-api-legacy-route` — ` /api/{**catch-all}` (обратная совместимость)
+- `checks-api-route` — ` /api/checks/{**catch-all}` (шаблон под будущий сервис проверок)
+- `swagger-route`, `hangfire-route` — проксирование тех. интерфейсов
+
+Чтобы добавить **новый сервис**, достаточно:
+
+1. Добавить новый `Cluster` с адресом сервиса.
+2. Добавить `Route` с публичным префиксом (`/api/<service>/{**catch-all}`).
+3. При необходимости добавить `Transforms` (например `PathRemovePrefix`).
+4. Добавить переменную окружения в `docker-compose.yml` для адреса destination.
+
+Отказоустойчивость на уровне Gateway:
+
+- `LoadBalancingPolicy: PowerOfTwoChoices`
+- `Passive health checks` (временное исключение проблемной destination)
+- `ActivityTimeout` для downstream-запросов
+- дублирование destination для failover-ready схемы
 
 ## Запуск через Docker Compose
 
 Убедитесь, что установлен [Docker](https://www.docker.com/).
 
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 
 После запуска будут доступны:
@@ -52,8 +76,15 @@ docker-compose up --build
 | Hangfire Dashboard | http://localhost:5050/hangfire |
 | RabbitMQ Management | http://localhost:15672 (guest / guest) |
 | WireMock | http://localhost:8080 |
+| Future checks API (demo profile) | http://localhost:5060 |
+| MailPit UI | http://localhost:8025 |
+| MailPit SMTP | localhost:1025 |
 | PostgreSQL | localhost:8432 |
 | Redis | localhost:6399 |
+
+> `future-checks-api` запускается только с profile `future`:
+>
+> `docker compose --profile future up --build`
 
 ## Локальный запуск без Docker
 
@@ -87,3 +118,64 @@ dotnet test tests/OrderService.IntegrationTests
 - **Медкомиссия** — `POST /api/medical/check` (задержка 2 с)
 
 При запуске через Docker Compose WireMock поднимается автоматически на порту 8080.
+
+## Отправка email через RabbitMQ Consumer
+
+- Коды подтверждения и уведомления публикуются в очередь `email-notifications`.
+- Фоновый consumer (`RabbitMqEmailConsumer`) читает очередь и отправляет письма через SMTP.
+- Для локального Docker-запуска используется MailPit (`http://localhost:8025`) — все письма видны в UI.
+
+## API (основные маршруты)
+
+### Auth
+
+- `POST /api/auth/register`
+- `POST /api/auth/confirm-email`
+- `POST /api/auth/resend-confirmation`
+- `POST /api/auth/login`
+
+### Applications
+
+- `POST /api/applications`
+- `POST /api/applications/renewal-expired` (перевыпуск, если срок прав истек)
+- `POST /api/applications/reissue` (перевыпуск: утеря, порча, смена данных, истечение)
+- `GET /api/applications/my`
+- `GET /api/applications/assigned/me`
+- `GET /api/applications/pending`
+- `GET /api/applications/stats`
+- `GET /api/applications/{id}`
+- `POST /api/applications/{id}/assign`
+- `POST /api/applications/{id}/review`
+- `POST /api/applications/{id}/cancel`
+- `POST /api/applications/{id}/recheck`
+- `POST /api/applications/{id}/print`
+
+### System
+
+- `GET /api/system/health`
+- `GET /api/system/version`
+
+## Расширяемость внешних проверок
+
+Проверки вынесены в provider-модель:
+
+- `IExternalCheckProvider` — контракт отдельной проверки.
+- `ExternalCheckService` — оркестратор, запускающий все зарегистрированные provider'ы.
+- Текущие реализации: `MvdExternalCheckProvider`, `MedicalExternalCheckProvider`.
+
+Чтобы добавить новую проверку:
+
+1. Создать класс-провайдер, реализующий `IExternalCheckProvider`.
+2. Зарегистрировать его в DI как `AddHttpClient<IExternalCheckProvider, NewProvider>()`.
+3. (Опционально) добавить route/стаб для внешнего API.
+
+После этого новая проверка автоматически попадет в пайплайн внешних проверок без изменения `ExternalCheckJob`.
+
+## Бизнес-правила по ИИН и категориям
+
+- ИИН теперь указывается при регистрации пользователя (`register`) и хранится в профиле.
+- При подаче заявки ИИН автоматически берется из профиля пользователя.
+- Если в заявке передан ИИН, он должен совпадать с ИИН пользователя.
+- Для категорий `C` и `D`:
+  - требуется возраст не меньше 21 года,
+  - требуется уже выданная категория `B` (статус `Printed`).

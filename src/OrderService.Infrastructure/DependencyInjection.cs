@@ -1,6 +1,7 @@
 using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using OrderService.Application.Interfaces;
@@ -21,21 +22,27 @@ public static class DependencyInjection
         var connectionString = config.GetConnectionString("Postgres")!;
 
         services.AddDbContext<AppDbContext>(options =>
-            options.UseNpgsql(connectionString));
+            options.UseNpgsql(connectionString)
+                .ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning)));
 
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IApplicationRepository, ApplicationRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
         var redisConnection = config.GetConnectionString("Redis") ?? "localhost:6399";
+        var redisOptions = ConfigurationOptions.Parse(redisConnection);
+        redisOptions.AbortOnConnectFail = false;
         services.AddSingleton<IConnectionMultiplexer>(
-            ConnectionMultiplexer.Connect(redisConnection));
+            ConnectionMultiplexer.Connect(redisOptions));
         services.AddScoped<ICacheService, RedisCacheService>();
 
         services.AddScoped<ITokenService, JwtTokenService>();
         services.AddSingleton<IEmailService, RabbitMqEmailService>();
 
-        services.AddHttpClient<IExternalCheckService, ExternalCheckService>();
+        services.AddScoped<IExternalCheckService, ExternalCheckService>();
+        services.AddHttpClient<IExternalCheckProvider, MvdExternalCheckProvider>();
+        services.AddHttpClient<IExternalCheckProvider, MedicalExternalCheckProvider>();
+        services.AddHostedService<RabbitMqEmailConsumer>();
 
         services.AddScoped<ExternalCheckJob>();
 

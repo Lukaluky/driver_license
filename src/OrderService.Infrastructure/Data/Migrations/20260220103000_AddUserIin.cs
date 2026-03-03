@@ -1,9 +1,13 @@
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using OrderService.Infrastructure.Data;
 
 #nullable disable
 
 namespace OrderService.Infrastructure.Data.Migrations
 {
+    [DbContext(typeof(AppDbContext))]
+    [Migration("20260220103000_AddUserIin")]
     public partial class AddUserIin : Migration
     {
         protected override void Up(MigrationBuilder migrationBuilder)

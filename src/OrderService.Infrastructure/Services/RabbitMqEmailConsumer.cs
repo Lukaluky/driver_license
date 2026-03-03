@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using RabbitMQ.Client;
+using RabbitMQ.Client.Exceptions;
 
 namespace OrderService.Infrastructure.Services;
 
@@ -26,23 +27,23 @@ public sealed class RabbitMqEmailConsumer : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!TryConnect())
-        {
-            _logger.LogWarning("RabbitMQ consumer is disabled because connection failed.");
-            return;
-        }
-
         while (!stoppingToken.IsCancellationRequested)
         {
-            var delivery = _channel!.BasicGet(QueueName, autoAck: false);
-            if (delivery is null)
+            if (!EnsureConnected())
             {
-                await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+                await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
                 continue;
             }
 
             try
             {
+                var delivery = _channel!.BasicGet(QueueName, autoAck: false);
+                if (delivery is null)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+                    continue;
+                }
+
                 var json = Encoding.UTF8.GetString(delivery.Body.ToArray());
                 var message = JsonSerializer.Deserialize<EmailNotificationMessage>(json);
                 if (message is null || string.IsNullOrWhiteSpace(message.To))
@@ -58,7 +59,6 @@ public sealed class RabbitMqEmailConsumer : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to process email message from RabbitMQ");
-                _channel.BasicNack(delivery.DeliveryTag, multiple: false, requeue: true);
                 await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
             }
         }
@@ -73,6 +73,8 @@ public sealed class RabbitMqEmailConsumer : BackgroundService
 
     private bool TryConnect()
     {
+        DisposeConnection();
+
         try
         {
             var factory = new ConnectionFactory
@@ -91,8 +93,39 @@ public sealed class RabbitMqEmailConsumer : BackgroundService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "RabbitMQ consumer connection failed");
+            DisposeConnection();
             return false;
         }
+    }
+
+    private bool EnsureConnected()
+    {
+        if (_connection is { IsOpen: true } && _channel is { IsOpen: true })
+            return true;
+
+        return TryConnect();
+    }
+
+    private void DisposeConnection()
+    {
+        try
+        {
+            _channel?.Dispose();
+        }
+        catch (AlreadyClosedException)
+        {
+        }
+
+        try
+        {
+            _connection?.Dispose();
+        }
+        catch (AlreadyClosedException)
+        {
+        }
+
+        _channel = null;
+        _connection = null;
     }
 
     private async Task SendEmailAsync(EmailNotificationMessage message, CancellationToken cancellationToken)

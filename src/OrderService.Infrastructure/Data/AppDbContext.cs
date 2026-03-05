@@ -11,6 +11,7 @@ public class AppDbContext : DbContext
     public DbSet<DriverApplication> Applications => Set<DriverApplication>();
     public DbSet<LicenceCard> LicenceCards => Set<LicenceCard>();
     public DbSet<ApplicationSummaryView> ApplicationSummaries => Set<ApplicationSummaryView>();
+    public DbSet<ExternalCheckProviderConfiguration> ExternalCheckProviders => Set<ExternalCheckProviderConfiguration>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

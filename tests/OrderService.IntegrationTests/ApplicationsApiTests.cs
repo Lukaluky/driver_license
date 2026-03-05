@@ -32,7 +32,7 @@ public class ApplicationsApiTests : IClassFixture<WebApplicationFactory<Program>
     }
 
     [Fact]
-    public async Task Login_Without_Confirmation_Should_Fail()
+    public async Task Applicant_Password_Login_Should_Fail()
     {
         var email = $"test-{Guid.NewGuid():N}@test.com";
         await _client.PostAsJsonAsync("/api/auth/register",

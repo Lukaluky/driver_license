@@ -43,7 +43,7 @@ public class ApplicationServiceTests
     public async Task Create_Should_Return_Application_When_Valid()
     {
         var userId = Guid.NewGuid();
-        var request = new CreateApplicationRequest("900515300123", "Иванов Иван", "B");
+        var request = new CreateApplicationRequest("Иванов Иван", "B");
 
         _createValidator.Setup(v => v.ValidateAsync(request, default))
             .ReturnsAsync(new ValidationResult());
@@ -64,7 +64,7 @@ public class ApplicationServiceTests
     public async Task Create_Should_Throw_When_Active_Application_Exists()
     {
         var userId = Guid.NewGuid();
-        var request = new CreateApplicationRequest("900515300123", "Иванов Иван", "B");
+        var request = new CreateApplicationRequest("Иванов Иван", "B");
 
         _createValidator.Setup(v => v.ValidateAsync(request, default))
             .ReturnsAsync(new ValidationResult());
@@ -83,7 +83,7 @@ public class ApplicationServiceTests
     public async Task Create_Should_Throw_When_Lock_Not_Acquired()
     {
         var userId = Guid.NewGuid();
-        var request = new CreateApplicationRequest("900515300123", "Иванов Иван", "B");
+        var request = new CreateApplicationRequest("Иванов Иван", "B");
 
         _createValidator.Setup(v => v.ValidateAsync(request, default))
             .ReturnsAsync(new ValidationResult());

@@ -21,6 +21,7 @@ public static class DataSeeder
             logger.LogInformation("Database migrated successfully");
 
             await SeedViewAsync(context);
+            await SeedExternalCheckProvidersAsync(context);
 
             if (!await context.Users.AnyAsync(u => u.Role == UserRole.Inspector))
             {
@@ -67,5 +68,48 @@ public static class DataSeeder
             """;
 
         await context.Database.ExecuteSqlRawAsync(viewSql);
+    }
+
+    private static async Task SeedExternalCheckProvidersAsync(AppDbContext context)
+    {
+        var now = DateTime.UtcNow;
+        var defaults = new[]
+        {
+            new ExternalCheckProviderConfiguration
+            {
+                Id = Guid.NewGuid(),
+                Name = "MVD",
+                BaseUrl = "http://wiremock:8080",
+                Path = "/api/mvd/check?iin={iin}",
+                HttpMethod = "GET",
+                TimeoutSeconds = 10,
+                IsEnabled = true,
+                ExecutionOrder = 1,
+                CreatedAt = now
+            },
+            new ExternalCheckProviderConfiguration
+            {
+                Id = Guid.NewGuid(),
+                Name = "Medical",
+                BaseUrl = "http://wiremock:8080",
+                Path = "/api/medical/check?iin={iin}",
+                HttpMethod = "GET",
+                TimeoutSeconds = 10,
+                IsEnabled = true,
+                ExecutionOrder = 2,
+                CreatedAt = now
+            }
+        };
+
+        foreach (var config in defaults)
+        {
+            var exists = await context.ExternalCheckProviders.AnyAsync(x => x.Name == config.Name);
+            if (exists)
+                continue;
+
+            await context.ExternalCheckProviders.AddAsync(config);
+        }
+
+        await context.SaveChangesAsync();
     }
 }

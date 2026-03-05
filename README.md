@@ -132,7 +132,9 @@ dotnet test tests/OrderService.IntegrationTests
 - `POST /api/auth/register`
 - `POST /api/auth/confirm-email`
 - `POST /api/auth/resend-confirmation`
-- `POST /api/auth/login`
+- `POST /api/auth/login` (только Inspector, вход по паролю)
+- `POST /api/auth/applicant/login-request` (Applicant, запрос кода входа на email)
+- `POST /api/auth/applicant/login-confirm` (Applicant, подтверждение кода и выдача JWT)
 
 ### Applications
 
@@ -157,25 +159,25 @@ dotnet test tests/OrderService.IntegrationTests
 
 ## Расширяемость внешних проверок
 
-Проверки вынесены в provider-модель:
+Проверки вынесены в динамическую конфигурацию:
 
-- `IExternalCheckProvider` — контракт отдельной проверки.
-- `ExternalCheckService` — оркестратор, запускающий все зарегистрированные provider'ы.
-- Текущие реализации: `MvdExternalCheckProvider`, `MedicalExternalCheckProvider`.
+- таблица `ExternalCheckProviders` хранит активные внешние проверки (имя, URL, path, метод, таймаут, порядок).
+- `ExternalCheckService` читает включенные записи из БД и запускает их по `ExecutionOrder`.
+- `ExternalCheckJob` остается неизменным и вызывает общий оркестратор.
 
 Чтобы добавить новую проверку:
 
-1. Создать класс-провайдер, реализующий `IExternalCheckProvider`.
-2. Зарегистрировать его в DI как `AddHttpClient<IExternalCheckProvider, NewProvider>()`.
-3. (Опционально) добавить route/стаб для внешнего API.
+1. Добавить запись в `ExternalCheckProviders` (`IsEnabled = true`).
+2. Указать `BaseUrl` и `Path` (можно с шаблоном `{iin}`).
+3. Задать `ExecutionOrder` и `TimeoutSeconds`.
 
-После этого новая проверка автоматически попадет в пайплайн внешних проверок без изменения `ExternalCheckJob`.
+После этого новая проверка автоматически попадает в пайплайн без изменения кода `ExternalCheckJob`.
 
 ## Бизнес-правила по ИИН и категориям
 
 - ИИН теперь указывается при регистрации пользователя (`register`) и хранится в профиле.
-- При подаче заявки ИИН автоматически берется из профиля пользователя.
-- Если в заявке передан ИИН, он должен совпадать с ИИН пользователя.
+- При подаче заявки ИИН всегда автоматически берется из профиля пользователя по `user_id`.
+- В DTO создания заявки поле ИИН отсутствует.
 - Для категорий `C` и `D`:
   - требуется возраст не меньше 21 года,
   - требуется уже выданная категория `B` (статус `Printed`).

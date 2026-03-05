@@ -40,8 +40,7 @@ public static class DependencyInjection
         services.AddSingleton<IEmailService, RabbitMqEmailService>();
 
         services.AddScoped<IExternalCheckService, ExternalCheckService>();
-        services.AddHttpClient<IExternalCheckProvider, MvdExternalCheckProvider>();
-        services.AddHttpClient<IExternalCheckProvider, MedicalExternalCheckProvider>();
+        services.AddHttpClient("external-checks");
         services.AddHostedService<RabbitMqEmailConsumer>();
 
         services.AddScoped<ExternalCheckJob>();

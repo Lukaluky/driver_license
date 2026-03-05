@@ -38,8 +38,7 @@ public class ApplicationService : IApplicationService
         var applicant = await _unitOfWork.Users.GetByIdAsync(applicantId)
             ?? throw new KeyNotFoundException("Пользователь не найден");
 
-        var effectiveIin = ResolveEffectiveIin(applicant, request.Iin);
-        await EnsureApplicantHasSingleIinAsync(applicantId, effectiveIin);
+        var effectiveIin = ResolveEffectiveIin(applicant);
 
         var category = Enum.Parse<LicenceCategory>(request.Category, true);
         await ValidateCategoryRequirementsAsync(applicantId, category, effectiveIin);
@@ -85,7 +84,7 @@ public class ApplicationService : IApplicationService
         if (request.ExpiredAt.Date > DateTime.UtcNow.Date)
             throw new InvalidOperationException("Нельзя подать на перевыпуск: срок действия прав еще не истек");
 
-        var createRequest = new CreateApplicationRequest(request.Iin, request.FullName, request.Category);
+        var createRequest = new CreateApplicationRequest(request.FullName, request.Category);
         return await CreateAsync(applicantId, createRequest);
     }
 
@@ -111,7 +110,7 @@ public class ApplicationService : IApplicationService
                 throw new InvalidOperationException("Срок предыдущих прав еще не истек");
         }
 
-        var createRequest = new CreateApplicationRequest(request.Iin, request.FullName, request.Category);
+        var createRequest = new CreateApplicationRequest(request.FullName, request.Category);
         return await CreateAsync(applicantId, createRequest);
     }
 
@@ -302,28 +301,12 @@ public class ApplicationService : IApplicationService
         }
     }
 
-    private async Task EnsureApplicantHasSingleIinAsync(Guid applicantId, string iin)
+    private static string ResolveEffectiveIin(User applicant)
     {
-        var knownIin = await _unitOfWork.Applications.GetApplicantIinAsync(applicantId);
-        if (!string.IsNullOrWhiteSpace(knownIin) && !knownIin.Equals(iin, StringComparison.Ordinal))
-            throw new InvalidOperationException("Один пользователь может использовать только один ИИН");
-    }
+        if (string.IsNullOrWhiteSpace(applicant.Iin))
+            throw new InvalidOperationException("Для пользователя не найден ИИН");
 
-    private static string ResolveEffectiveIin(User applicant, string? requestIin)
-    {
-        if (string.IsNullOrWhiteSpace(requestIin))
-        {
-            if (string.IsNullOrWhiteSpace(applicant.Iin))
-                throw new InvalidOperationException("Для пользователя не найден ИИН");
-
-            return applicant.Iin;
-        }
-
-        if (!string.IsNullOrWhiteSpace(applicant.Iin) &&
-            !applicant.Iin.Equals(requestIin, StringComparison.Ordinal))
-            throw new InvalidOperationException("ИИН заявки не совпадает с ИИН пользователя");
-
-        return requestIin;
+        return applicant.Iin;
     }
 
     private async Task ValidateCategoryRequirementsAsync(Guid applicantId, LicenceCategory category, string iin)

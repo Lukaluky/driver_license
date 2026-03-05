@@ -71,6 +71,56 @@ public class AuthController : ControllerBase
         }
     }
 
+    [HttpPost("applicant/login-request")]
+    [HttpPost("login-request")]
+    public async Task<IActionResult> RequestApplicantLoginCode([FromBody] RequestApplicantLoginCodeRequest request)
+    {
+        try
+        {
+            await _authService.RequestApplicantLoginCodeAsync(request);
+            return Ok(new { Message = "Код для входа отправлен на email" });
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { Errors = ex.Errors.Select(e => e.ErrorMessage) });
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { Error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { Error = ex.Message });
+        }
+    }
+
+    [HttpPost("applicant/login-confirm")]
+    [HttpPost("login-confirm")]
+    public async Task<IActionResult> ConfirmApplicantLogin([FromBody] ConfirmApplicantLoginRequest request)
+    {
+        try
+        {
+            var response = await _authService.ConfirmApplicantLoginAsync(request);
+            return Ok(response);
+        }
+        catch (ValidationException ex)
+        {
+            return BadRequest(new { Errors = ex.Errors.Select(e => e.ErrorMessage) });
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { Error = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Unauthorized(new { Error = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { Error = ex.Message });
+        }
+    }
+
     [HttpPost("resend-confirmation")]
     public async Task<IActionResult> ResendConfirmation([FromBody] ResendConfirmationRequest request)
     {
